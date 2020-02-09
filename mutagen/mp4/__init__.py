@@ -584,6 +584,9 @@ class MP4Tags(DictProxy, Tags):
             self.setdefault(key, []).extend(value)
 
     def __render_data(self, key, version, flags, value):
+        if isinstance(value, bytes):
+            return Atom.render(_key2name(key), Atom.render(
+                b"data", struct.pack(">2I", version << 24 | flags, 0) + value))
         return Atom.render(_key2name(key), b"".join([
             Atom.render(
                 b"data", struct.pack(">2I", version << 24 | flags, 0) + data)
@@ -621,6 +624,7 @@ class MP4Tags(DictProxy, Tags):
         name = struct.pack(">I4sI", len(name) + 12, b"name", 0) + name
 
         data = b""
+        ret = b""
         for v in value:
             flags = AtomDataType.UTF8
             version = 0
@@ -628,11 +632,13 @@ class MP4Tags(DictProxy, Tags):
                 flags = v.dataformat
                 version = v.version
 
-            data += struct.pack(
+            # for every element we give render once
+            data = struct.pack(
                 ">I4s2I", len(v) + 16, b"data", version << 24 | flags, 0)
             data += v
+            ret += Atom.render(b"----", mean + name + data)
 
-        return Atom.render(b"----", mean + name + data)
+        return ret
 
     def __parse_pair(self, atom, data):
         key = _name2key(atom.name)
@@ -821,8 +827,9 @@ class MP4Tags(DictProxy, Tags):
                 except (AttributeError, UnicodeDecodeError) as e:
                     raise TypeError(e)
             encoded.append(v.encode("utf-8"))
-
-        return self.__render_data(key, 0, flags, encoded)
+        return b''.join(self.__render_data(key,
+            0, flags, each_encoded)
+            for each_encoded in encoded)
 
     def delete(self, filename):
         """Remove the metadata from the given filename."""
